@@ -1,4 +1,4 @@
-/* MODS New Episodes v0.1.1 | Independent Lampa add-on | No embedded account data */
+/* MODS New Episodes v0.1.2 | Independent Lampa add-on | No embedded account data */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.ModssEpisodesCore = factory();
@@ -280,7 +280,12 @@
 
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./core.js'),require('./adapter.js'));else root.ModssNewEpisodes=factory(root.ModssEpisodesCore,root.ModssEpisodesAdapter).install(root);}(typeof window!=='undefined'?window:this,function(core,adapter){
   'use strict';
-  var VERSION='0.1.1', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
+  var VERSION='0.1.2', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
+  function subscriptionChoice(items,voice){
+    var found=null;(items||[]).some(function(item){
+      if(!item.unsubscribe_action&&item.voice_data&&core.sameVoice(item.voice_data.voice_name,voice)){found=item;return true;}return false;
+    });return found;
+  }
   function mountSubscribeButton(Lampa,$,movie,invalidate){
     if(!movie||movie.type==='movie'||movie.media_type==='movie'||!(movie.name||movie.original_name||movie.first_air_date||movie.number_of_seasons>0))return false;
     var a=Lampa.Activity.active();if(!a||a.component!=='full'||!a.activity)return false;
@@ -339,6 +344,7 @@
     if(root.ModssNewEpisodes&&root.ModssNewEpisodes.dispose)root.ModssNewEpisodes.dispose();
     var Lampa=root.Lampa,$=root.jQuery||root.$,homes=[],targets=[],service=null,busy=null,alive=true,timer=null,bootTimer=null,scheduled=null,timelineTimer=null,buttonTimer=null;
     var originalMain=null,wrappedMain=null,profile='',state={rows:[],time:0,partial:false,errors:[],subscriptions:[]},status='Проверяю подписки…';
+    var episodeButtonTimer=null,pendingSubscription=null,latestFullKey='',nativeSubscriptionButton=null;
     function profileName(){
       var account=Lampa.Storage.get('account',{}), lp=Lampa.Storage.get('lampac_profile_id','');
       var email=Lampa.Storage.get('account_email','');var id=lp||account&&account.profile&&account.profile.id||'guest';
@@ -346,7 +352,7 @@
     }
     function loadProfile(){
       var next=profileName();if(next===profile)return false;
-      if(service)service.abort();service=null;busy=null;profile=next;
+      if(service)service.abort();service=null;busy=null;profile=next;pendingSubscription=null;nativeSubscriptionButton=null;latestFullKey='';
       state=Lampa.Storage.get(core.storageKey('cache',profile),{rows:[],time:0,partial:false,errors:[],subscriptions:[]});
       if(!state||!Array.isArray(state.rows))state={rows:[],time:0,partial:false,errors:[],subscriptions:[]};
       status=state.time?'':'Проверяю подписки…';return true;
@@ -529,6 +535,7 @@
     }
     function activityEvent(e){
       if(!alive)return;
+      if(e.component==='modss_online'&&(e.type==='start'||e.type==='create'))queueEpisodeButton();
       if(e.component==='full'&&(e.type==='start'||e.type==='create'))queueSubscriptionButton(e.object&&e.object.card);
       if(e.component==='main'&&(e.type==='create'||e.type==='start')){
         loadProfile();var comp=e.object&&e.object.activity&&e.object.activity.component;attach(comp);schedule();
@@ -536,12 +543,53 @@
         if(service)service.abort();var params=e.object||active();attachTarget(params&&params.activity&&params.activity.component,params&&params.mnef_target);
       }else if(e.type==='start'&&e.component!=='main'&&service)service.abort();
     }
+    function queueEpisodeButton(){
+      clearTimeout(episodeButtonTimer);
+      function check(){
+        if(!alive)return;var a=active();if(!a||a.component!=='modss_online')return;
+        var movie=a.movie,c=a.activity&&a.activity.component;
+        if(c&&movie&&movie.name){
+          var area=c.render(),head=area.find('.torrent-filter').first(),button=area.find('.mnef-episode-subscribe');
+          if(head.length&&!button.length){
+            button=$('<div class="simple-button selector mnef-episode-subscribe"><span></span></div>');
+            button.on('hover:enter',function(){
+              var choice=c.getChoice(),voice=choice.voice_name||'';
+              if(state.subscriptions.some(function(s){return core.showKey(s.movie)===core.showKey(movie)&&core.sameVoice(s.voice,voice);}))return note('Подписка на '+voice+' уже есть');
+              pendingSubscription={movie:movie,voice:voice,time:Date.now()};
+              state.time=0;Lampa.Storage.set(core.storageKey('cache',profile),state);
+              if(latestFullKey===core.showKey(movie)&&nativeSubscriptionButton&&nativeSubscriptionButton.length&&!nativeSubscriptionButton.hasClass('modss-online--loading'))nativeSubscriptionButton.trigger('hover:long');
+              else Lampa.Router.call('full',movie);
+            });head.append(button);
+          }
+          if(button.length){var voice=c.getChoice().voice_name||'';button.find('span').text(voice?'Подписаться на '+voice:'Подписаться на озвучку');}
+        }
+        episodeButtonTimer=setTimeout(check,700);
+      }episodeButtonTimer=setTimeout(check,200);
+    }
+    function subscriptionPicker(e){
+      var pending=pendingSubscription;if(!pending||Date.now()-pending.time>15000){pendingSubscription=null;return;}
+      if(latestFullKey!==core.showKey(pending.movie)){pendingSubscription=null;return;}
+      var picker=e.active;if(!picker||!picker.items||!picker.items.some(function(i){return i.voice_data||i.is_folder;}))return;
+      pendingSubscription=null;
+      if(!pending.voice)return;
+      var choice=subscriptionChoice(picker.items,pending.voice);
+      if(choice&&typeof picker.onSelect==='function'){
+        if(choice.isSubscribed)return note('Подписка на '+pending.voice+' уже есть');
+        picker.onSelect(choice);
+      }
+    }
     function queueSubscriptionButton(movie){
       clearTimeout(buttonTimer);var tries=0;
       function attempt(){
         if(!alive)return;var a=active();if(!a||a.component!=='full')return;
         var card=movie||a.card;if(!card)return;
+        var original=a.activity.render().find('.view--modss_online').first();
+        if(original.length){latestFullKey=core.showKey(card);nativeSubscriptionButton=original;}
         var added=mountSubscribeButton(Lampa,$,card,function(){state.time=0;Lampa.Storage.set(core.storageKey('cache',profile),state);});
+        if(pendingSubscription&&core.showKey(pendingSubscription.movie)===core.showKey(card)&&original.length){
+          if(original.hasClass('modss-online--loading')){if(++tries<60)buttonTimer=setTimeout(attempt,250);return;}
+          original.trigger('hover:long');return;
+        }
         if(!added&&++tries<20)buttonTimer=setTimeout(attempt,250);
       }buttonTimer=setTimeout(attempt,150);
     }
@@ -560,30 +608,33 @@
       $('<style id="mnef-style"></style>').text(css).appendTo('head');
       Lampa.Listener.follow('activity',activityEvent);
       Lampa.Listener.follow('full',fullEvent);
+      if(Lampa.Select&&Lampa.Select.listener)Lampa.Select.listener.follow('fullshow',subscriptionPicker);
       if(Lampa.Timeline.listener)Lampa.Timeline.listener.follow('update',timelineEvent);
       if(Lampa.Timeline.listener)Lampa.Timeline.listener.follow('read',timelineEvent);
       Lampa.Storage.listener.follow('change',storageEvent);
       root.document.addEventListener('visibilitychange',visibilityEvent);
-      var current=active();if(current&&current.component==='main')attach(current.activity&&current.activity.component);else if(current&&current.component==='full')queueSubscriptionButton(current.card);
+      var current=active();if(current&&current.component==='main')attach(current.activity&&current.activity.component);else if(current&&current.component==='full')queueSubscriptionButton(current.card);else if(current&&current.component==='modss_online')queueEpisodeButton();
       timer=setInterval(function(){if(allowed())refresh(false);},60000);schedule();
     }
     function dispose(){
       alive=false;if(service)service.abort();clearTimeout(bootTimer);clearTimeout(scheduled);clearTimeout(timelineTimer);clearTimeout(buttonTimer);clearInterval(timer);
+      clearTimeout(episodeButtonTimer);pendingSubscription=null;nativeSubscriptionButton=null;
       if(!Lampa)return;
       if(wrappedMain&&Lampa.Component.get('main')===wrappedMain)Lampa.Component.add('main',originalMain);
       if(Lampa.Listener&&Lampa.Listener.remove)Lampa.Listener.remove('activity',activityEvent);
       if(Lampa.Listener&&Lampa.Listener.remove)Lampa.Listener.remove('full',fullEvent);
+      if(Lampa.Select&&Lampa.Select.listener)Lampa.Select.listener.remove('fullshow',subscriptionPicker);
       if(Lampa.Timeline.listener){Lampa.Timeline.listener.remove('update',timelineEvent);Lampa.Timeline.listener.remove('read',timelineEvent);}
       if(Lampa.Storage.listener)Lampa.Storage.listener.remove('change',storageEvent);
       root.document.removeEventListener('visibilitychange',visibilityEvent);targets.slice().forEach(function(record){record.clean();});
       homes.forEach(function(home){
         var comp=home.comp;comp.build=home.build;comp.emit=home.emit;comp._mnefAttached=false;if(comp.unuse)comp.unuse(home.module);
         if(home.line){var at=comp.items.indexOf(home.line);if(at>=0)comp.items.splice(at,1);home.line.destroy();}
-      });homes=[];if($){$('#mnef-style').remove();$('.mnef-subscribe').remove();}
+      });homes=[];if($){$('#mnef-style').remove();$('.mnef-subscribe,.mnef-episode-subscribe').remove();}
     }
     var handle={version:VERSION,refresh:function(){return refresh(true);},menu:refreshMenu,dispose:dispose,
       summary:function(){return {version:VERSION,busy:!!busy,rows:state.rows.length,unwatched:feed().length,partial:state.partial,subscriptions:state.subscriptions.length};}};
     boot();return handle;
   }
-  return {mountSubscribeButton:mountSubscribeButton,insertRow:insertRow,mayRefresh:mayRefresh,currentScan:currentScan,pages:pages,targetChoice:targetChoice,progressFor:progressFor,markEpisode:markEpisode,episodeCard:episodeCard,statusCard:statusCard,install:install};
+  return {subscriptionChoice:subscriptionChoice,mountSubscribeButton:mountSubscribeButton,insertRow:insertRow,mayRefresh:mayRefresh,currentScan:currentScan,pages:pages,targetChoice:targetChoice,progressFor:progressFor,markEpisode:markEpisode,episodeCard:episodeCard,statusCard:statusCard,install:install};
 }));

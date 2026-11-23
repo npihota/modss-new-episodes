@@ -1,4 +1,10 @@
 const test=require('node:test');const assert=require('node:assert/strict');const plugin=require('../src/plugin.js');
+test('episode subscription uses current voice and never selects the unsubscribe action',()=>{
+ assert.equal(typeof plugin.subscriptionChoice,'function');
+ const target={voice_data:{voice_name:'AniStar'},title:'AniStar'};
+ assert.equal(plugin.subscriptionChoice([{unsubscribe_action:true,voice_data:{voice_name:'Anistar'}},target],'Anistar'),target);
+ assert.equal(plugin.subscriptionChoice([target],'AnimeVost'),null);
+});
 test('series subscription button delegates to MODS voice picker once and invalidates feed',()=>{
  assert.equal(typeof plugin.mountSubscribeButton,'function');
  let exists=false,handler,triggered=0,invalidated=0,loading=false;
