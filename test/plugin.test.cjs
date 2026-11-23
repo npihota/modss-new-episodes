@@ -1,4 +1,12 @@
 const test=require('node:test');const assert=require('node:assert/strict');const plugin=require('../src/plugin.js');
+test('subscription label reflects the current studio and exact series',()=>{
+ assert.equal(typeof plugin.subscriptionStatus,'function');
+ const movie={id:5,name:'Series',source:'tmdb'},subs=[{movie,voice:'Anistar'}];
+ assert.deepEqual(plugin.subscriptionStatus(subs,movie,'AniStar'),{subscribed:true,label:'Уже подписан на AniStar'});
+ assert.equal(plugin.subscriptionStatus(subs,movie,'AnimeVost').subscribed,false);
+ assert.equal(plugin.subscriptionStatus(subs,{...movie,id:6},'AniStar').subscribed,false);
+ assert.equal(plugin.subscriptionStatus(subs,movie,'').label,'Подписаться на озвучку');
+});
 test('episode subscription uses current voice and never selects the unsubscribe action',()=>{
  assert.equal(typeof plugin.subscriptionChoice,'function');
  const target={voice_data:{voice_name:'AniStar'},title:'AniStar'};
