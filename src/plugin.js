@@ -1,6 +1,18 @@
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./core.js'),require('./adapter.js'));else root.ModssNewEpisodes=factory(root.ModssEpisodesCore,root.ModssEpisodesAdapter).install(root);}(typeof window!=='undefined'?window:this,function(core,adapter){
   'use strict';
-  var VERSION='0.1.0', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
+  var VERSION='0.1.1', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
+  function mountSubscribeButton(Lampa,$,movie,invalidate){
+    if(!movie||movie.type==='movie'||movie.media_type==='movie'||!(movie.name||movie.original_name||movie.first_air_date||movie.number_of_seasons>0))return false;
+    var a=Lampa.Activity.active();if(!a||a.component!=='full'||!a.activity)return false;
+    if(a.card&&a.card.id&&movie.id&&String(a.card.id)!==String(movie.id))return false;
+    var area=a.activity.render(),online=area.find('.view--modss_online').first?area.find('.view--modss_online').first():area.find('.view--modss_online');
+    if(area.find('.mnef-subscribe').length||!online.length)return false;
+    var button=$('<div class="full-start__button selector mnef-subscribe"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span>Подписаться на обновления</span></div>');
+    button.on('hover:enter',function(){
+      if(online.hasClass('modss-online--loading'))return Lampa.Noty.show('Подожди, MODS’s ещё проверяет источники');
+      invalidate();online.trigger('hover:long');
+    });online.after(button);return true;
+  }
   function insertRow(data,row) {
     var out=(data||[]).filter(function(x){return !x.mnef;}), at=-1;
     out.some(function(x,i){if(/сейчас смотрят|now watching/i.test(x.title||'')){at=i;return true;}return false;});
@@ -45,7 +57,7 @@
   function statusCard(text){return {id:0,title:text,name:text,mnefStatus:true,params:{}};}
   function install(root){
     if(root.ModssNewEpisodes&&root.ModssNewEpisodes.dispose)root.ModssNewEpisodes.dispose();
-    var Lampa=root.Lampa,$=root.jQuery||root.$,homes=[],targets=[],service=null,busy=null,alive=true,timer=null,bootTimer=null,scheduled=null,timelineTimer=null;
+    var Lampa=root.Lampa,$=root.jQuery||root.$,homes=[],targets=[],service=null,busy=null,alive=true,timer=null,bootTimer=null,scheduled=null,timelineTimer=null,buttonTimer=null;
     var originalMain=null,wrappedMain=null,profile='',state={rows:[],time:0,partial:false,errors:[],subscriptions:[]},status='Проверяю подписки…';
     function profileName(){
       var account=Lampa.Storage.get('account',{}), lp=Lampa.Storage.get('lampac_profile_id','');
@@ -237,12 +249,23 @@
     }
     function activityEvent(e){
       if(!alive)return;
+      if(e.component==='full'&&(e.type==='start'||e.type==='create'))queueSubscriptionButton(e.object&&e.object.card);
       if(e.component==='main'&&(e.type==='create'||e.type==='start')){
         loadProfile();var comp=e.object&&e.object.activity&&e.object.activity.component;attach(comp);schedule();
       }else if(e.component==='modss_online'&&(e.type==='create'||e.type==='start')){
         if(service)service.abort();var params=e.object||active();attachTarget(params&&params.activity&&params.activity.component,params&&params.mnef_target);
       }else if(e.type==='start'&&e.component!=='main'&&service)service.abort();
     }
+    function queueSubscriptionButton(movie){
+      clearTimeout(buttonTimer);var tries=0;
+      function attempt(){
+        if(!alive)return;var a=active();if(!a||a.component!=='full')return;
+        var card=movie||a.card;if(!card)return;
+        var added=mountSubscribeButton(Lampa,$,card,function(){state.time=0;Lampa.Storage.set(core.storageKey('cache',profile),state);});
+        if(!added&&++tries<20)buttonTimer=setTimeout(attempt,250);
+      }buttonTimer=setTimeout(attempt,150);
+    }
+    function fullEvent(e){if(e.type==='complite'&&e.data)queueSubscriptionButton(e.data.movie);}
     function visibilityEvent(){if(root.document.visibilityState==='hidden'){if(service)service.abort();}else schedule();}
     function timelineEvent(){clearTimeout(timelineTimer);timelineTimer=setTimeout(function(){if(alive)updateHomes();},120);}
     function storageEvent(e){if(e.name==='account'||e.name==='lampac_profile_id'||e.name==='account_email'){loadProfile();updateHomes();schedule();}}
@@ -256,29 +279,31 @@
       var css='.mnef-line .card{width:19em}.mnef-line .card__view{padding-bottom:56.25%;position:relative}.mnef-line .card__img{object-fit:cover}.mnef-line .card__year{display:none}.mnef-caption{font-size:.85em;opacity:.8;line-height:1.4;margin-top:.4em;max-width:24em}.mnef-badge{position:absolute;left:.5em;top:.5em;padding:.25em .45em;background:rgba(0,0,0,.8);color:white;border-radius:.25em;font-size:1.1em;font-weight:700;z-index:3}.mnef-progress{position:absolute;bottom:.4em;left:3%;width:94%;height:.25em;background:rgba(255,255,255,.25);z-index:3}.mnef-progress i{display:block;height:100%;background:#fff}.mnef-status .card__view{background:linear-gradient(135deg,#263c51,#18202c)}.mnef-status img{display:none}.mnef-status-label{position:absolute;left:12%;right:12%;top:12%;bottom:12%;display:flex;align-items:center;justify-content:center;text-align:center;font-size:1.1em;line-height:1.4}.mnef-line .card__name{white-space:normal;line-height:1.3}';
       $('<style id="mnef-style"></style>').text(css).appendTo('head');
       Lampa.Listener.follow('activity',activityEvent);
+      Lampa.Listener.follow('full',fullEvent);
       if(Lampa.Timeline.listener)Lampa.Timeline.listener.follow('update',timelineEvent);
       if(Lampa.Timeline.listener)Lampa.Timeline.listener.follow('read',timelineEvent);
       Lampa.Storage.listener.follow('change',storageEvent);
       root.document.addEventListener('visibilitychange',visibilityEvent);
-      var current=active();if(current&&current.component==='main')attach(current.activity&&current.activity.component);
+      var current=active();if(current&&current.component==='main')attach(current.activity&&current.activity.component);else if(current&&current.component==='full')queueSubscriptionButton(current.card);
       timer=setInterval(function(){if(allowed())refresh(false);},60000);schedule();
     }
     function dispose(){
-      alive=false;if(service)service.abort();clearTimeout(bootTimer);clearTimeout(scheduled);clearTimeout(timelineTimer);clearInterval(timer);
+      alive=false;if(service)service.abort();clearTimeout(bootTimer);clearTimeout(scheduled);clearTimeout(timelineTimer);clearTimeout(buttonTimer);clearInterval(timer);
       if(!Lampa)return;
       if(wrappedMain&&Lampa.Component.get('main')===wrappedMain)Lampa.Component.add('main',originalMain);
       if(Lampa.Listener&&Lampa.Listener.remove)Lampa.Listener.remove('activity',activityEvent);
+      if(Lampa.Listener&&Lampa.Listener.remove)Lampa.Listener.remove('full',fullEvent);
       if(Lampa.Timeline.listener){Lampa.Timeline.listener.remove('update',timelineEvent);Lampa.Timeline.listener.remove('read',timelineEvent);}
       if(Lampa.Storage.listener)Lampa.Storage.listener.remove('change',storageEvent);
       root.document.removeEventListener('visibilitychange',visibilityEvent);targets.slice().forEach(function(record){record.clean();});
       homes.forEach(function(home){
         var comp=home.comp;comp.build=home.build;comp.emit=home.emit;comp._mnefAttached=false;if(comp.unuse)comp.unuse(home.module);
         if(home.line){var at=comp.items.indexOf(home.line);if(at>=0)comp.items.splice(at,1);home.line.destroy();}
-      });homes=[];if($)$('#mnef-style').remove();
+      });homes=[];if($){$('#mnef-style').remove();$('.mnef-subscribe').remove();}
     }
     var handle={version:VERSION,refresh:function(){return refresh(true);},menu:refreshMenu,dispose:dispose,
       summary:function(){return {version:VERSION,busy:!!busy,rows:state.rows.length,unwatched:feed().length,partial:state.partial,subscriptions:state.subscriptions.length};}};
     boot();return handle;
   }
-  return {insertRow:insertRow,mayRefresh:mayRefresh,currentScan:currentScan,pages:pages,targetChoice:targetChoice,progressFor:progressFor,markEpisode:markEpisode,episodeCard:episodeCard,statusCard:statusCard,install:install};
+  return {mountSubscribeButton:mountSubscribeButton,insertRow:insertRow,mayRefresh:mayRefresh,currentScan:currentScan,pages:pages,targetChoice:targetChoice,progressFor:progressFor,markEpisode:markEpisode,episodeCard:episodeCard,statusCard:statusCard,install:install};
 }));

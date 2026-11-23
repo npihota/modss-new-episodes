@@ -1,4 +1,18 @@
 const test=require('node:test');const assert=require('node:assert/strict');const plugin=require('../src/plugin.js');
+test('series subscription button delegates to MODS voice picker once and invalidates feed',()=>{
+ assert.equal(typeof plugin.mountSubscribeButton,'function');
+ let exists=false,handler,triggered=0,invalidated=0,loading=false;
+ const btn={length:1,on(name,fn){handler=fn;return this;}};
+ const online={length:1,hasClass(){return loading;},trigger(name){assert.equal(name,'hover:long');triggered++;},after(){exists=true;}};
+ const area={find(s){return s==='.mnef-subscribe'?{length:exists?1:0}:online;}};
+ const L={Activity:{active:()=>({component:'full',activity:{render:()=>area}})},Noty:{show(){}}};
+ const $=()=>btn;
+ plugin.mountSubscribeButton(L,$,{id:5,name:'Series',number_of_seasons:1},()=>invalidated++);
+ handler();assert.equal(triggered,1);assert.equal(invalidated,1);
+ loading=true;handler();assert.equal(triggered,1);
+ assert.equal(plugin.mountSubscribeButton(L,$,{id:5,name:'Series'},()=>{}),false);
+ exists=false;assert.equal(plugin.mountSubscribeButton(L,$,{id:9,title:'Movie',release_date:'2025-01-01'},()=>{}),false);
+});
 function api(name){assert.equal(typeof plugin[name],'function',name+' must be implemented');return plugin[name];}
 test('new episode row is exactly second, directly below Сейчас смотрят, and never duplicated',()=>{
  const watching={title:'Сейчас смотрят',results:[]}, rest={title:'Рекомендуем посмотреть',results:[]}, feed={title:'Новые серии',mnef:true,results:[]};
