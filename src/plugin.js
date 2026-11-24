@@ -1,6 +1,10 @@
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./core.js'),require('./adapter.js'));else root.ModssNewEpisodes=factory(root.ModssEpisodesCore,root.ModssEpisodesAdapter).install(root);}(typeof window!=='undefined'?window:this,function(core,adapter){
   'use strict';
-  var VERSION='0.1.4', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
+  var VERSION='0.1.5', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
+  function emptyMessage(state,status){
+    if(state.partial)return 'Не удалось проверить серии — открой «Диагностику» в меню ленты';
+    return status||(state.rows.length?'Всё доступное уже просмотрено':'Доступных новых серий пока нет');
+  }
   function subscriptionStatus(subscriptions,movie,voice){
     var subscribed=!!voice&&(subscriptions||[]).some(function(s){return s.active!==false&&s.active!==0&&core.showKey(s.movie)===core.showKey(movie)&&core.sameVoice(s.voice,voice);});
     return {subscribed:subscribed,label:voice?(subscribed?'Уже подписан на ':'Подписаться на ')+voice:'Подписаться на озвучку'};
@@ -92,7 +96,7 @@
     function feed(){return core.buildFeed(state.rows,{progress:function(row){return progressFor(Lampa,row);}});}
     function rowData(){
       var rows=feed(), suffix=busy?' · обновляю…':state.partial?' · часть источников недоступна':state.time&&Date.now()-state.time>TTL?' · сохранённые данные':'';
-      var message=status||(state.rows.length?'Всё доступное уже просмотрено':'Доступных новых серий пока нет');
+      var message=emptyMessage(state,status);
       return {mnef:true,title:TITLE+suffix,results:rows.length?rows.slice(0,200).map(episodeCard):[statusCard(message)],params:{items:{mapping:'line',view:7}}};
     }
     function note(text){Lampa.Noty.show(text);}
@@ -101,6 +105,14 @@
       var watched=state.rows.filter(function(row){return Number(progressFor(Lampa,row).percent)>=core.COMPLETION_PERCENT;}).sort(function(a,b){return b.season-a.season||b.episode-a.episode;});
       select(TITLE,[
         {title:'Обновить доступные серии',action:function(){refresh(true);}},
+        {title:'Диагностика',action:function(){
+          var messages={MODS_NO_SOURCES:'Нет поддерживаемых источников',MODS_TIMEOUT:'Истекло время ожидания',MODS_REQUEST:'Сетевая ошибка',MODS_DENIED:'MODS’s отклонил запрос',MODS_VERSION:'Несовместимый интерфейс MODS’s',MODS_MISSING:'MODS’s не загружен',MODS_FORMAT:'Неизвестный формат ответа',MODS_SIG_EXPIRED:'Истекла сессия MODS’s',UNSUPPORTED_API:'Неизвестный адрес API'};
+          var items=[{title:'Плагин '+VERSION,subtitle:'Подписок: '+state.subscriptions.length+' · Найдено серий: '+state.rows.length+' · В ленте: '+feed().length}];
+          items.push({title:'Lampa '+String(Lampa.Manifest&&Lampa.Manifest.app_version||'?'),subtitle:'Соединение: '+String(root.location&&root.location.protocol||'?')});
+          (state.errors||[]).forEach(function(e){items.push({title:(e.source||'Общая проверка')+' · '+(messages[e.code]||'Ошибка проверки'),subtitle:e.code||'UNKNOWN'});});
+          if(!state.partial)items.push({title:'Последняя проверка завершена без ошибок'});
+          select('Диагностика новых серий',items);
+        }},
         {title:'Просмотренные серии · '+watched.length,action:function(){
           if(!watched.length)return note('Просмотренных серий в текущем списке нет');
           var groups=pages(watched,50);
@@ -256,7 +268,7 @@
         Lampa.Storage.set(core.storageKey('cache',profile),state);status=subs.length?'':'Подпишись на озвучку сериала в MODS’s';
       }).catch(function(e){
         if(!currentScan(scope,profile,currentService,service,alive)||e.code==='CANCELLED')return;
-        state=old;state.partial=true;
+        state=old;state.partial=true;state.errors=[{source:'',code:e.code||'MODS_REQUEST'}];
         status=state.rows.length?'':'Не удалось проверить MODS’s. Открой онлайн-просмотр и обнови ленту.';
       }).then(function(){
         if(currentScan(scope,profile,currentService,service,alive)){busy=null;service=null;updateHomes();}
@@ -374,5 +386,5 @@
       summary:function(){return {version:VERSION,busy:!!busy,rows:state.rows.length,unwatched:feed().length,partial:state.partial,subscriptions:state.subscriptions.length};}};
     boot();return handle;
   }
-  return {subscriptionStatus:subscriptionStatus,subscriptionChoice:subscriptionChoice,mountSubscribeButton:mountSubscribeButton,insertRow:insertRow,mayRefresh:mayRefresh,currentScan:currentScan,pages:pages,targetChoice:targetChoice,progressFor:progressFor,markEpisode:markEpisode,episodeCard:episodeCard,statusCard:statusCard,install:install};
+  return {emptyMessage:emptyMessage,subscriptionStatus:subscriptionStatus,subscriptionChoice:subscriptionChoice,mountSubscribeButton:mountSubscribeButton,insertRow:insertRow,mayRefresh:mayRefresh,currentScan:currentScan,pages:pages,targetChoice:targetChoice,progressFor:progressFor,markEpisode:markEpisode,episodeCard:episodeCard,statusCard:statusCard,install:install};
 }));

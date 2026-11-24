@@ -1,4 +1,4 @@
-/* MODS New Episodes v0.1.4 | Independent Lampa add-on | No embedded account data */
+/* MODS New Episodes v0.1.5 | Independent Lampa add-on | No embedded account data */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.ModssEpisodesCore = factory();
@@ -40,7 +40,10 @@
     if (!host) return false;
     if (url.charAt(0) === '/' && url.charAt(1) !== '/') url = host[1] + '://' + host[2] + url;
     var target = /^(https?):\/\/([^/?#]+)/i.exec(url);
-    return !!target && target[1].toLowerCase() === host[1].toLowerCase() && target[2].toLowerCase() === host[2].toLowerCase() ? url : false;
+    if(!target||target[2].toLowerCase()!==host[2].toLowerCase())return false;
+    // An API source may use http even when the client connects over https. Upgrade;
+    // never downgrade an authenticated request or accept a different authority.
+    return host[1].toLowerCase()==='https' ? url.replace(/^http:/i,'https:') : url;
   }
   function extractEpisodes(payload, ctx) {
     var rows = [], seen = {}, ids = {}, nodes = 0;
@@ -177,10 +180,11 @@
           comp.parse = function (json) {
             if(options.shouldContinue && !options.shouldContinue())return finish(failure('CANCELLED'));
             if (!json || typeof json !== 'object') return finish(failure('MODS_RESPONSE'));
-            if (json.error || json.vip || json.sig === 'expired') return finish(failure('MODS_DENIED'));
+            if(json.sig==='expired')return finish(failure('MODS_SIG_EXPIRED'));
+            if (json.error || json.vip) return finish(failure('MODS_DENIED'));
             finish(null,json);
           };
-          comp.doesNotAnswer = function () { finish(failure('MODS_REQUEST')); };
+          comp.doesNotAnswer = function (response) { var status=Number(response&&response.status);finish(failure(status>=100&&status<=599?'MODS_HTTP_'+status:'MODS_REQUEST')); };
           comp.empty = function () { finish(failure('MODS_RATE_LIMIT')); };
           try { action(finish); } catch (error) { finish(failure('MODS_VERSION')); }
         });
@@ -263,7 +267,8 @@
         var chain = Promise.resolve();
         Object.keys(sources).forEach(function (slug) {
           var info = sources[slug];
-          if (!info || info.disabled || info.show === false || !core.apiUrl(info.url,api)) return;
+          if (!info || info.disabled || info.show === false) return;
+          if(!core.apiUrl(info.url,api)){errors.push({source:slug,code:'UNSUPPORTED_API'});return;}
           chain = chain.then(function () { return source(slug,info); });
         });
         return chain;
@@ -281,7 +286,11 @@
 
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./core.js'),require('./adapter.js'));else root.ModssNewEpisodes=factory(root.ModssEpisodesCore,root.ModssEpisodesAdapter).install(root);}(typeof window!=='undefined'?window:this,function(core,adapter){
   'use strict';
-  var VERSION='0.1.4', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
+  var VERSION='0.1.5', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
+  function emptyMessage(state,status){
+    if(state.partial)return 'Не удалось проверить серии — открой «Диагностику» в меню ленты';
+    return status||(state.rows.length?'Всё доступное уже просмотрено':'Доступных новых серий пока нет');
+  }
   function subscriptionStatus(subscriptions,movie,voice){
     var subscribed=!!voice&&(subscriptions||[]).some(function(s){return s.active!==false&&s.active!==0&&core.showKey(s.movie)===core.showKey(movie)&&core.sameVoice(s.voice,voice);});
     return {subscribed:subscribed,label:voice?(subscribed?'Уже подписан на ':'Подписаться на ')+voice:'Подписаться на озвучку'};
@@ -373,7 +382,7 @@
     function feed(){return core.buildFeed(state.rows,{progress:function(row){return progressFor(Lampa,row);}});}
     function rowData(){
       var rows=feed(), suffix=busy?' · обновляю…':state.partial?' · часть источников недоступна':state.time&&Date.now()-state.time>TTL?' · сохранённые данные':'';
-      var message=status||(state.rows.length?'Всё доступное уже просмотрено':'Доступных новых серий пока нет');
+      var message=emptyMessage(state,status);
       return {mnef:true,title:TITLE+suffix,results:rows.length?rows.slice(0,200).map(episodeCard):[statusCard(message)],params:{items:{mapping:'line',view:7}}};
     }
     function note(text){Lampa.Noty.show(text);}
@@ -382,6 +391,14 @@
       var watched=state.rows.filter(function(row){return Number(progressFor(Lampa,row).percent)>=core.COMPLETION_PERCENT;}).sort(function(a,b){return b.season-a.season||b.episode-a.episode;});
       select(TITLE,[
         {title:'Обновить доступные серии',action:function(){refresh(true);}},
+        {title:'Диагностика',action:function(){
+          var messages={MODS_NO_SOURCES:'Нет поддерживаемых источников',MODS_TIMEOUT:'Истекло время ожидания',MODS_REQUEST:'Сетевая ошибка',MODS_DENIED:'MODS’s отклонил запрос',MODS_VERSION:'Несовместимый интерфейс MODS’s',MODS_MISSING:'MODS’s не загружен',MODS_FORMAT:'Неизвестный формат ответа',MODS_SIG_EXPIRED:'Истекла сессия MODS’s',UNSUPPORTED_API:'Неизвестный адрес API'};
+          var items=[{title:'Плагин '+VERSION,subtitle:'Подписок: '+state.subscriptions.length+' · Найдено серий: '+state.rows.length+' · В ленте: '+feed().length}];
+          items.push({title:'Lampa '+String(Lampa.Manifest&&Lampa.Manifest.app_version||'?'),subtitle:'Соединение: '+String(root.location&&root.location.protocol||'?')});
+          (state.errors||[]).forEach(function(e){items.push({title:(e.source||'Общая проверка')+' · '+(messages[e.code]||'Ошибка проверки'),subtitle:e.code||'UNKNOWN'});});
+          if(!state.partial)items.push({title:'Последняя проверка завершена без ошибок'});
+          select('Диагностика новых серий',items);
+        }},
         {title:'Просмотренные серии · '+watched.length,action:function(){
           if(!watched.length)return note('Просмотренных серий в текущем списке нет');
           var groups=pages(watched,50);
@@ -537,7 +554,7 @@
         Lampa.Storage.set(core.storageKey('cache',profile),state);status=subs.length?'':'Подпишись на озвучку сериала в MODS’s';
       }).catch(function(e){
         if(!currentScan(scope,profile,currentService,service,alive)||e.code==='CANCELLED')return;
-        state=old;state.partial=true;
+        state=old;state.partial=true;state.errors=[{source:'',code:e.code||'MODS_REQUEST'}];
         status=state.rows.length?'':'Не удалось проверить MODS’s. Открой онлайн-просмотр и обнови ленту.';
       }).then(function(){
         if(currentScan(scope,profile,currentService,service,alive)){busy=null;service=null;updateHomes();}
@@ -655,5 +672,5 @@
       summary:function(){return {version:VERSION,busy:!!busy,rows:state.rows.length,unwatched:feed().length,partial:state.partial,subscriptions:state.subscriptions.length};}};
     boot();return handle;
   }
-  return {subscriptionStatus:subscriptionStatus,subscriptionChoice:subscriptionChoice,mountSubscribeButton:mountSubscribeButton,insertRow:insertRow,mayRefresh:mayRefresh,currentScan:currentScan,pages:pages,targetChoice:targetChoice,progressFor:progressFor,markEpisode:markEpisode,episodeCard:episodeCard,statusCard:statusCard,install:install};
+  return {emptyMessage:emptyMessage,subscriptionStatus:subscriptionStatus,subscriptionChoice:subscriptionChoice,mountSubscribeButton:mountSubscribeButton,insertRow:insertRow,mayRefresh:mayRefresh,currentScan:currentScan,pages:pages,targetChoice:targetChoice,progressFor:progressFor,markEpisode:markEpisode,episodeCard:episodeCard,statusCard:statusCard,install:install};
 }));

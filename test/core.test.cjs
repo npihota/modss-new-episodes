@@ -3,6 +3,11 @@ const assert = require('node:assert/strict');
 const core = require('../src/core.js');
 const ep = (n, voice, extra={}) => ({episode:n, voice_name:voice, url:'https://example.invalid/resolve/'+n, ...extra});
 const context = {voice:'Anistar', source:'kodik', movie:{id:223911, source:'tmdb',name:'Противостояние святого'}};
+test('HTTP source URLs from the same MODS API are upgraded instead of silently discarded',()=>{
+ assert.equal(core.apiUrl('http://api.lampa.stream/on/kodik','https://api.lampa.stream/'),'https://api.lampa.stream/on/kodik');
+ assert.equal(core.apiUrl('https://api.lampa.stream/on/kodik','http://api.lampa.stream/'),'https://api.lampa.stream/on/kodik');
+ assert.equal(core.apiUrl('http://evil.invalid/on/kodik','https://api.lampa.stream/'),false);
+});
 test('all progress below 85 percent remains in new episodes',()=>{
  const rows=core.extractEpisodes({folder:{AniStar:{1:[ep(1),ep(2),ep(3),ep(4),ep(5)]}}},context);
  const percentages=[0,30,84.99,85,100];

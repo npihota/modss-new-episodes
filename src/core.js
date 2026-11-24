@@ -39,7 +39,10 @@
     if (!host) return false;
     if (url.charAt(0) === '/' && url.charAt(1) !== '/') url = host[1] + '://' + host[2] + url;
     var target = /^(https?):\/\/([^/?#]+)/i.exec(url);
-    return !!target && target[1].toLowerCase() === host[1].toLowerCase() && target[2].toLowerCase() === host[2].toLowerCase() ? url : false;
+    if(!target||target[2].toLowerCase()!==host[2].toLowerCase())return false;
+    // An API source may use http even when the client connects over https. Upgrade;
+    // never downgrade an authenticated request or accept a different authority.
+    return host[1].toLowerCase()==='https' ? url.replace(/^http:/i,'https:') : url;
   }
   function extractEpisodes(payload, ctx) {
     var rows = [], seen = {}, ids = {}, nodes = 0;

@@ -47,10 +47,11 @@
           comp.parse = function (json) {
             if(options.shouldContinue && !options.shouldContinue())return finish(failure('CANCELLED'));
             if (!json || typeof json !== 'object') return finish(failure('MODS_RESPONSE'));
-            if (json.error || json.vip || json.sig === 'expired') return finish(failure('MODS_DENIED'));
+            if(json.sig==='expired')return finish(failure('MODS_SIG_EXPIRED'));
+            if (json.error || json.vip) return finish(failure('MODS_DENIED'));
             finish(null,json);
           };
-          comp.doesNotAnswer = function () { finish(failure('MODS_REQUEST')); };
+          comp.doesNotAnswer = function (response) { var status=Number(response&&response.status);finish(failure(status>=100&&status<=599?'MODS_HTTP_'+status:'MODS_REQUEST')); };
           comp.empty = function () { finish(failure('MODS_RATE_LIMIT')); };
           try { action(finish); } catch (error) { finish(failure('MODS_VERSION')); }
         });
@@ -133,7 +134,8 @@
         var chain = Promise.resolve();
         Object.keys(sources).forEach(function (slug) {
           var info = sources[slug];
-          if (!info || info.disabled || info.show === false || !core.apiUrl(info.url,api)) return;
+          if (!info || info.disabled || info.show === false) return;
+          if(!core.apiUrl(info.url,api)){errors.push({source:slug,code:'UNSUPPORTED_API'});return;}
           chain = chain.then(function () { return source(slug,info); });
         });
         return chain;

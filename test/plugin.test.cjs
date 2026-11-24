@@ -1,4 +1,9 @@
 const test=require('node:test');const assert=require('node:assert/strict');const plugin=require('../src/plugin.js');
+test('failed empty scans never claim there are no new episodes',()=>{
+ assert.equal(typeof plugin.emptyMessage,'function');
+ assert.match(plugin.emptyMessage({rows:[],partial:true},''),/Не удалось проверить/);
+ assert.match(plugin.emptyMessage({rows:[],partial:false},''),/пока нет/);
+});
 test('legacy timeline uses current MODS title progress instead of an older completed alias',()=>{
  const L={Utils:{hash:s=>s},Timeline:{view:h=>h.includes('Canonical')?{percent:30,time:300,duration:1000}:{percent:100,time:0,duration:1000},link:()=>null}};
  const row={movie:{id:5,original_title:'Canonical',original_name:'Alias'},season:1,episode:1};
