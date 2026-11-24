@@ -1,4 +1,9 @@
 const test=require('node:test');const assert=require('node:assert/strict');const plugin=require('../src/plugin.js');
+test('legacy timeline uses current MODS title progress instead of an older completed alias',()=>{
+ const L={Utils:{hash:s=>s},Timeline:{view:h=>h.includes('Canonical')?{percent:30,time:300,duration:1000}:{percent:100,time:0,duration:1000},link:()=>null}};
+ const row={movie:{id:5,original_title:'Canonical',original_name:'Alias'},season:1,episode:1};
+ assert.equal(plugin.progressFor(L,row).percent,30);
+});
 test('subscription label reflects the current studio and exact series',()=>{
  assert.equal(typeof plugin.subscriptionStatus,'function');
  const movie={id:5,name:'Series',source:'tmdb'},subs=[{movie,voice:'Anistar'}];

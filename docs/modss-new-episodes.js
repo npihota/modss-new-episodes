@@ -1,9 +1,10 @@
-/* MODS New Episodes v0.1.3 | Independent Lampa add-on | No embedded account data */
+/* MODS New Episodes v0.1.4 | Independent Lampa add-on | No embedded account data */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.ModssEpisodesCore = factory();
 }(typeof window !== 'undefined' ? window : this, function () {
   'use strict';
+  var COMPLETION_PERCENT = 85;
   var owns = Object.prototype.hasOwnProperty;
   function positive(value) { var n = Number(value); return isFinite(n) && n > 0 && Math.floor(n) === n ? n : 0; }
   function normalizeVoice(value) {
@@ -109,7 +110,7 @@
       var progress = options.progress ? options.progress(row) || {} : {};
       var percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
       var mark = manual[row.key], through = baseline[row.show];
-      var watched = percent >= 90;
+      var watched = percent >= COMPLETION_PERCENT;
       if (through && (row.season < through.season || row.season === through.season && row.episode <= through.episode)) watched = true;
       if (mark && typeof mark.watched === 'boolean') watched = mark.watched;
       return Object.assign({},row,{percent:percent, watched:watched});
@@ -123,7 +124,7 @@
         title:row.title,discoveredAt:row.discoveredAt || 0,sources:row.sources.map(function (src) { return {slug:src.slug,title:String(src.title || src.slug).replace(/<[^>]*>/g,'')}; })};
     })};
   }
-  return {positive:positive, normalizeVoice:normalizeVoice, sameVoice:sameVoice, showKey:showKey, storageKey:storageKey,
+  return {COMPLETION_PERCENT:COMPLETION_PERCENT,positive:positive, normalizeVoice:normalizeVoice, sameVoice:sameVoice, showKey:showKey, storageKey:storageKey,
     safeMovie:safeMovie, apiUrl:apiUrl, extractEpisodes:extractEpisodes,navigation:navigation,mergeEpisodes:mergeEpisodes,buildFeed:buildFeed,snapshot:snapshot};
 }));
 
@@ -280,7 +281,7 @@
 
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./core.js'),require('./adapter.js'));else root.ModssNewEpisodes=factory(root.ModssEpisodesCore,root.ModssEpisodesAdapter).install(root);}(typeof window!=='undefined'?window:this,function(core,adapter){
   'use strict';
-  var VERSION='0.1.3', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
+  var VERSION='0.1.4', TITLE='Новые серии · MODS’s', TTL=10*60*1000;
   function subscriptionStatus(subscriptions,movie,voice){
     var subscribed=!!voice&&(subscriptions||[]).some(function(s){return s.active!==false&&s.active!==0&&core.showKey(s.movie)===core.showKey(movie)&&core.sameVoice(s.voice,voice);});
     return {subscribed:subscribed,label:voice?(subscribed?'Уже подписан на ':'Подписаться на ')+voice:'Подписаться на озвучку'};
@@ -324,7 +325,11 @@
     var movie=row.movie||{}, names=[movie.original_title||movie.original_name||movie.name||movie.title||''];
     if(movie.original_name&&names.indexOf(movie.original_name)===-1)names.push(movie.original_name);
     var found=names.map(function(name){return timelineFor(Lampa,row,name);});
-    found.sort(function(a,b){return (Number(b.updated)||0)-(Number(a.updated)||0)||(Number(b.percent)||0)-(Number(a.percent)||0);});
+    // Modern timelines carry timestamps; legacy ones must prefer the canonical MODS title,
+    // not a completed alias left behind by an earlier manual mark or another source.
+    var newest=found[0];found.forEach(function(view){if((Number(view.updated)||0)>(Number(newest.updated)||0))newest=view;});
+    if(newest&&Number(newest.updated)>0)return newest;
+    found=found.filter(function(view){return Number(view.percent)||Number(view.time)||Number(view.duration);});
     return found[0]||{percent:0};
   }
   function markEpisode(Lampa,row,watched){
@@ -374,7 +379,7 @@
     function note(text){Lampa.Noty.show(text);}
     function select(title,items){Lampa.Select.show({title:title,items:items,onBack:function(){Lampa.Controller.toggle('content');},onSelect:function(item){Lampa.Select.hide();if(item.action)item.action();}});}
     function refreshMenu(){
-      var watched=state.rows.filter(function(row){return Number(progressFor(Lampa,row).percent)>=90;}).sort(function(a,b){return b.season-a.season||b.episode-a.episode;});
+      var watched=state.rows.filter(function(row){return Number(progressFor(Lampa,row).percent)>=core.COMPLETION_PERCENT;}).sort(function(a,b){return b.season-a.season||b.episode-a.episode;});
       select(TITLE,[
         {title:'Обновить доступные серии',action:function(){refresh(true);}},
         {title:'Просмотренные серии · '+watched.length,action:function(){
@@ -387,7 +392,7 @@
           }showPage(0);
         }},
         {title:'Управлять подписками MODS’s',action:function(){Lampa.Activity.push({component:'subscribes',title:'Подписки',source:Lampa.Storage.field('source')||'tmdb'});}},
-        {title:'О ленте',action:function(){note('Серии берутся из MODS’s в выбранной озвучке. Просмотрено: от 90%. История общая со штатной Lampa; для Lampac подключи Sync и TimeCode на обоих устройствах.');}}
+        {title:'О ленте',action:function(){note('Серии берутся из MODS’s в выбранной озвучке. Просмотрено: от 85%. История общая со штатной Lampa; для Lampac подключи Sync и TimeCode на обоих устройствах.');}}
       ]);
     }
     function openEpisode(row){

@@ -3,6 +3,11 @@ const assert = require('node:assert/strict');
 const core = require('../src/core.js');
 const ep = (n, voice, extra={}) => ({episode:n, voice_name:voice, url:'https://example.invalid/resolve/'+n, ...extra});
 const context = {voice:'Anistar', source:'kodik', movie:{id:223911, source:'tmdb',name:'Противостояние святого'}};
+test('all progress below 85 percent remains in new episodes',()=>{
+ const rows=core.extractEpisodes({folder:{AniStar:{1:[ep(1),ep(2),ep(3),ep(4),ep(5)]}}},context);
+ const percentages=[0,30,84.99,85,100];
+ assert.deepEqual(core.buildFeed(rows,{progress:r=>({percent:percentages[r.episode-1]})}).map(r=>r.episode),[3,2,1]);
+});
 function api(name) { assert.equal(typeof core[name], 'function', name+' must be implemented'); return core[name]; }
 test('sparse source lists do not invent missing episodes or use the subscription checkpoint', () => {
   const rows = api('extractEpisodes')({folder:{AniStar:{1:[ep(39),ep(114),ep(125)]}},episode_count:168},context);
@@ -44,9 +49,9 @@ test('duplicate source entries merge without confusing seasons',()=>{
   assert.equal(rows.length,2);
   assert.deepEqual(rows.find(x=>x.episode===167).sources.map(x=>x.slug).sort(),['alloha','kodik']);
 });
-test('90 percent is complete; started episodes stay; explicit unwatched overrides timeline',()=>{
+test('85 percent is complete; started episodes stay; explicit unwatched overrides timeline',()=>{
   const rows=api('extractEpisodes')({folder:{AniStar:{1:[ep(1),ep(2),ep(3)]}}},context);
-  const progress=x=>({percent:x.episode===1?90:x.episode===2?35:100});
+  const progress=x=>({percent:x.episode===1?85:x.episode===2?35:100});
   const manual={}; manual[rows[2].key]={watched:false};
   const feed=api('buildFeed')(rows,{progress,manual});
   assert.deepEqual(feed.map(x=>x.episode),[3,2]);

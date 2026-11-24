@@ -3,6 +3,7 @@
   else root.ModssEpisodesCore = factory();
 }(typeof window !== 'undefined' ? window : this, function () {
   'use strict';
+  var COMPLETION_PERCENT = 85;
   var owns = Object.prototype.hasOwnProperty;
   function positive(value) { var n = Number(value); return isFinite(n) && n > 0 && Math.floor(n) === n ? n : 0; }
   function normalizeVoice(value) {
@@ -108,7 +109,7 @@
       var progress = options.progress ? options.progress(row) || {} : {};
       var percent = Math.max(0, Math.min(100, Number(progress.percent) || 0));
       var mark = manual[row.key], through = baseline[row.show];
-      var watched = percent >= 90;
+      var watched = percent >= COMPLETION_PERCENT;
       if (through && (row.season < through.season || row.season === through.season && row.episode <= through.episode)) watched = true;
       if (mark && typeof mark.watched === 'boolean') watched = mark.watched;
       return Object.assign({},row,{percent:percent, watched:watched});
@@ -122,6 +123,6 @@
         title:row.title,discoveredAt:row.discoveredAt || 0,sources:row.sources.map(function (src) { return {slug:src.slug,title:String(src.title || src.slug).replace(/<[^>]*>/g,'')}; })};
     })};
   }
-  return {positive:positive, normalizeVoice:normalizeVoice, sameVoice:sameVoice, showKey:showKey, storageKey:storageKey,
+  return {COMPLETION_PERCENT:COMPLETION_PERCENT,positive:positive, normalizeVoice:normalizeVoice, sameVoice:sameVoice, showKey:showKey, storageKey:storageKey,
     safeMovie:safeMovie, apiUrl:apiUrl, extractEpisodes:extractEpisodes,navigation:navigation,mergeEpisodes:mergeEpisodes,buildFeed:buildFeed,snapshot:snapshot};
 }));
